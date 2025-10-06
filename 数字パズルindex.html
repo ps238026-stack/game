@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ナンバープレース - クマとウサギと一緒に</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-25px); }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        @keyframes ping {
+            75%, 100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+        .animate-bounce { animation: bounce 1s infinite; }
+        .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        .animate-spin { animation: spin 1s linear infinite; }
+        .animate-ping { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
+        
+        .floating-heart {
+            position: fixed;
+            pointer-events: none;
+            z-index: 9999;
+            animation: ping 2s ease-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-purple-100 via-pink-100 to-blue-100">
+    <div id="app" class="container mx-auto py-8"></div>
+
+    <script>
+        // ゲーム状態
+        let gameState = {
+            currentScreen: 'menu',
+            score: 0,
+            currentLevel: 1,
+            grid: [],
+            selectedCell: null,
+            isCompleted: false,
+            highlightedCells: [],
+            showSolution: false,
+            bearAnimation: '',
+            rabbitAnimation: '',
+            showCelebration: false,
+            celebrationMessage: ''
+        };
+
+        // パズル定義
+        const puzzles = [
+            {
+                initial: [
+                    [1, 0, 3, 0],
+                    [0, 3, 0, 1],
+                    [3, 0, 1, 0],
+                    [0, 1, 0, 3]
+                ],
+                solution: [
+                    [1, 2, 3, 4],
+                    [4, 3, 2, 1],
+                    [3, 4, 1, 2],
+                    [2, 1, 4, 3]
+                ],
+                size: 4
+            },
+            {
+                initial: [
+                    [0, 2, 0, 4],
+                    [4, 0, 2, 0],
+                    [0, 4, 0, 2],
+                    [2, 0, 4, 0]
+                ],
+                solution: [
+                    [1, 2, 3, 4],
+                    [4, 3, 2, 1],
+                    [3, 4, 1, 2],
+                    [2, 1, 4, 3]
+                ],
+                size: 4
+            },
+            {
+                initial: [
+                    [0, 0, 3, 0],
+                    [0, 3, 0, 0],
+                    [0, 0, 1, 0],
+                    [0, 1, 0, 0]
+                ],
+                solution: [
+                    [1, 2, 3, 4],
+                    [4, 3, 2, 1],
+                    [3, 4, 1, 2],
+                    [2, 1, 4, 3]
+                ],
+                size: 4
+            }
+        ];
+
+        // ユーティリティ関数
+        function getCurrentPuzzle() {
+            return puzzles[Math.min(gameState.currentLevel - 1, puzzles.length - 1)];
+        }
+
+        function copyGrid(grid) {
+            return grid.map(row => [...row]);
+        }
+
+        function checkSolution(grid) {
+            const puzzle = getCurrentPuzzle();
+            
+            // 全てのセルが埋まっているかチェック
+            for (let i = 0; i < puzzle.size; i++) {
+                for (let j = 0; j < puzzle.size; j++) {
+                    if (grid[i][j] === 0) return false;
+                }
+            }
+            
+            // 各行チェック
+            for (let i = 0; i < puzzle.size; i++) {
+                const rowSet = new Set(grid[i]);
+                if (rowSet.size !== puzzle.size) return false;
+                for (let num = 1; num <= puzzle.size; num++) {
+                    if (!rowSet.has(num)) return false;
+                }
+            }
+            
+            // 各列チェック
+            for (let j = 0; j < puzzle.size; j++) {
+                const colSet = new Set();
+                for (let i = 0; i < puzzle.size; i++) {
+                    colSet.add(grid[i][j]);
+                }
+                if (colSet.size !== puzzle.size) return false;
+                for (let num = 1; num <= puzzle.size; num++) {
+                    if (!colSet.has(num)) return false;
+                }
+            }
+            
+            return true;
+        }
+
+        function setAnimation(character, animation, duration = 800) {
+            if (character === 'bear') {
+                gameState.bearAnimation = animation;
+            } else {
+                gameState.rabbitAnimation = animation;
+            }
+            setTimeout(() => {
+                if (character === 'bear') {
+                    gameState.bearAnimation = '';
+                } else {
+                    gameState.rabbitAnimation = '';
+                }
+                render();
+            }, duration);
+        }
+
+        function createFloatingHearts() {
+            for (let i = 0; i < 8; i++) {
+                setTimeout(() => {
+                    const heart = document.createElement('div');
+                    heart.className = 'floating-heart text-red-500 text-2xl';
+                    heart.textContent = '❤️';
+                    heart.style.left = Math.random() * 100 + '%';
+                    heart.style.top = Math.random() * 100 + '%';
+                    document.body.appendChild(heart);
+                    
+                    setTimeout(() => heart.remove(), 2000);
+                }, i * 200);
+            }
+        }
+
+        function showCelebrationModal(isCorrect) {
+            gameState.showCelebration = true;
+            render();
+            
+            setTimeout(() => {
+                gameState.showCelebration = false;
+                if (isCorrect && gameState.currentLevel < puzzles.length) {
+                    gameState.currentLevel++;
+                    initLevel();
+                }
+                render();
+            }, isCorrect ? 4000 : 2000);
+        }
+
+        // ゲームロジック
+        function initLevel() {
+            const puzzle = getCurrentPuzzle();
+            gameState.grid = copyGrid(puzzle.initial);
+            gameState.isCompleted = false;
+            gameState.selectedCell = null;
+            gameState.highlightedCells = [];
+            gameState.showSolution = false;
+            setAnimation('bear', 'bounce', 1000);
+            setAnimation('rabbit', 'wave', 1000);
+        }
+
+        function handleCellClick(row, col) {
+            if (gameState.isCompleted || gameState.showSolution) return;
+            
+            const puzzle = getCurrentPuzzle();
+            if (puzzle.initial[row][col] !== 0) {
+                setAnimation('bear', 'shake');
+                return;
+            }
+            
+            const currentValue = gameState.grid[row][col];
+            if (currentValue === 0) {
+                gameState.grid[row][col] = 1;
+            } else {
+                gameState.grid[row][col] = currentValue === 4 ? 0 : currentValue + 1;
+            }
+            
+            gameState.selectedCell = [row, col];
+            
+            if (Math.random() > 0.5) {
+                setAnimation('bear', 'nod');
+            } else {
+                setAnimation('rabbit', 'jump');
+            }
+            
+            render();
+        }
+
+        function handleConfirm() {
+            if (gameState.isCompleted) return;
+            
+            if (checkSolution(gameState.grid)) {
+                gameState.isCompleted = true;
+                const levelBonus = gameState.currentLevel * 100;
+                gameState.score += levelBonus;
+                
+                setAnimation('bear', 'celebrate');
+                setAnimation('rabbit', 'celebrate');
+                createFloatingHearts();
+                
+                const messages = [
+                    '🎉 すごいね！初級クリア！',
+                    '✨ やったね！中級クリア！',
+                    '🌟 完璧！上級クリア！'
+                ];
+                gameState.celebrationMessage = messages[Math.min(gameState.currentLevel - 1, messages.length - 1)];
+                
+                // セルを順番に光らせる
+                const puzzle = getCurrentPuzzle();
+                const cells = [];
+                for (let i = 0; i < puzzle.size; i++) {
+                    for (let j = 0; j < puzzle.size; j++) {
+                        cells.push([i, j]);
+                    }
+                }
+                
+                cells.forEach((cell, index) => {
+                    setTimeout(() => {
+                        gameState.highlightedCells.push(`${cell[0]}-${cell[1]}`);
+                        render();
+                    }, index * 100);
+                });
+                
+                showCelebrationModal(true);
+            } else {
+                setAnimation('bear', 'sad');
+                setAnimation('rabbit', 'sad');
+                
+                const hasEmpty = gameState.grid.some(row => row.includes(0));
+                gameState.celebrationMessage = hasEmpty 
+                    ? '全てのマスを埋めてね！' 
+                    : '各行・列に1〜4が一つずつ必要だよ！';
+                
+                showCelebrationModal(false);
+            }
+        }
+
+        function resetLevel() {
+            initLevel();
+            setAnimation('bear', 'reset', 1000);
+            setAnimation('rabbit', 'reset', 1000);
+            render();
+        }
+
+        function toggleSolution() {
+            gameState.showSolution = !gameState.showSolution;
+            if (gameState.showSolution) {
+                setAnimation('bear', 'think');
+                setAnimation('rabbit', 'think');
+            }
+            render();
+        }
+
+        // レンダリング関数
+        function getCharacterEmote(type, animation) {
+            const emotes = {
+                bear: {
+                    bounce: '🐻‍❄️',
+                    wave: '👋🐻',
+                    nod: '😊🐻',
+                    jump: '🐻⬆️',
+                    celebrate: '🎉🐻🎉',
+                    think: '🤔🐻',
+                    reset: '🔄🐻',
+                    sad: '😢🐻',
+                    shake: '🙅🐻',
+                    default: '🐻'
+                },
+                rabbit: {
+                    bounce: '🐰',
+                    wave: '👋🐰',
+                    nod: '😊🐰',
+                    jump: '🐰⬆️',
+                    celebrate: '🎉🐰🎉',
+                    think: '🤔🐰',
+                    reset: '🔄🐰',
+                    sad: '😢🐰',
+                    shake: '🙅🐰',
+                    default: '🐰'
+                }
+            };
+            
+            return emotes[type][animation] || emotes[type].default;
+        }
+
+        function renderMainMenu() {
+            return `
+                <div class="p-6 max-w-md mx-auto">
+                    <div class="text-center mb-8">
+                        <div class="relative mb-6">
+                            <div class="mx-auto w-16 h-16 text-purple-500 animate-pulse text-6xl">🧠</div>
+                        </div>
+                        <h1 class="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 mb-3" style="background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                            ナンバープレース
+                        </h1>
+                        <p class="text-gray-600 text-lg">クマとウサギと一緒に遊ぼう！</p>
+                        
+                        <div class="flex justify-center gap-8 my-6">
+                            <div class="text-center">
+                                <div class="text-6xl animate-bounce">🐻</div>
+                                <p class="text-sm font-semibold text-brown-600">クマ先生</p>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-6xl animate-bounce" style="animation-delay: 0.5s;">🐰</div>
+                                <p class="text-sm font-semibold text-pink-600">ウサギちゃん</p>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-6 bg-gradient-to-r from-yellow-100 to-orange-100 px-6 py-4 rounded-xl shadow-lg">
+                            <div class="flex items-center justify-center gap-3 text-xl font-bold text-orange-800">
+                                <span class="text-2xl">🏆</span>
+                                <span>スコア: ${gameState.score.toLocaleString()}</span>
+                                <span class="text-yellow-500 animate-pulse">⭐</span>
+                            </div>
+                            <p class="text-orange-700 mt-2">現在のレベル: ${gameState.currentLevel}</p>
+                        </div>
+                    </div>
+                    
+                    <button onclick="startGame()" class="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white px-6 py-6 rounded-xl hover:from-purple-600 hover:to-pink-700 shadow-xl transform hover:scale-105 transition-all duration-300">
+                        <div class="flex items-center justify-center gap-3 mb-2">
+                            <div class="text-3xl">🧩</div>
+                            <span class="text-xl font-bold">ゲームスタート</span>
+                            <div class="text-3xl">🎮</div>
+                        </div>
+                        <p class="text-sm opacity-90">クマとウサギが応援してくれるよ！</p>
+                    </button>
+                    
+                    <div class="mt-8 text-center">
+                        <p class="text-gray-500 text-sm">
+                            レベル1（初級）→ レベル2（中級）→ レベル3（上級）
+                        </p>
+                        <p class="text-gray-500 text-sm mt-2">
+                            集中力と論理的思考を鍛えよう！
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderGame() {
+            const puzzle = getCurrentPuzzle();
+            
+            let gridHTML = '';
+            for (let i = 0; i < puzzle.size; i++) {
+                for (let j = 0; j < puzzle.size; j++) {
+                    const cell = gameState.grid[i][j];
+                    const isSelected = gameState.selectedCell && gameState.selectedCell[0] === i && gameState.selectedCell[1] === j;
+                    const isHighlighted = gameState.highlightedCells.includes(`${i}-${j}`);
+                    const isEmpty = cell === 0;
+                    const solutionValue = puzzle.solution[i][j];
+                    const displayValue = gameState.showSolution ? solutionValue : cell;
+                    const isInitial = puzzle.initial[i][j] !== 0;
+                    
+                    let cellClass = 'w-16 h-16 border-2 flex items-center justify-center cursor-pointer transition-all duration-300 transform hover:scale-110 rounded-xl shadow-md hover:shadow-lg ';
+                    
+                    if (isEmpty && !gameState.showSolution) {
+                        cellClass += 'bg-gray-100 border-gray-400 ';
+                    } else {
+                        cellClass += 'bg-white border-blue-400 ';
+                    }
+                    
+                    if (isSelected) {
+                        cellClass += 'ring-4 ring-pink-400 scale-110 shadow-lg shadow-pink-200 ';
+                    }
+                    
+                    if (isHighlighted) {
+                        cellClass += 'bg-gradient-to-r from-yellow-200 to-green-200 animate-pulse shadow-lg ';
+                    }
+                    
+                    if (gameState.isCompleted) {
+                        cellClass += 'bg-green-100 border-green-400 ';
+                    } else {
+                        cellClass += 'hover:bg-blue-50 ';
+                    }
+                    
+                    if (gameState.showSolution) {
+                        cellClass += 'bg-yellow-100 border-yellow-400 shadow-lg ';
+                    }
+                    
+                    let textClass = 'text-2xl font-bold transition-all duration-300 ';
+                    if (displayValue === 0) {
+                        textClass += 'text-gray-400';
+                    } else if (gameState.showSolution) {
+                        textClass += 'text-orange-600';
+                    } else if (gameState.isCompleted) {
+                        textClass += 'text-green-600 animate-pulse';
+                    } else if (isInitial) {
+                        textClass += 'text-purple-700 font-extrabold';
+                    } else {
+                        textClass += 'text-blue-600';
+                    }
+                    
+                    gridHTML += `
+                        <div class="${cellClass}" onclick="handleCellClick(${i}, ${j})">
+                            <span class="${textClass}">${displayValue === 0 ? '?' : displayValue}</span>
+                        </div>
+                    `;
+                }
+            }
+            
+            const bearEmote = getCharacterEmote('bear', gameState.bearAnimation);
+            const rabbitEmote = getCharacterEmote('rabbit', gameState.rabbitAnimation);
+            const animateClass = (gameState.bearAnimation === 'celebrate' || gameState.bearAnimation === 'bounce') ? 'animate-bounce' : gameState.bearAnimation === 'shake' ? 'animate-pulse' : '';
+            
+            return `
+                <div class="p-6 max-w-md mx-auto relative">
+                    ${gameState.showCelebration ? `
+                        <div class="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50">
+                            <div class="bg-white p-8 rounded-xl text-center shadow-2xl animate-bounce relative">
+                                <div class="absolute -top-4 -left-4 text-6xl animate-spin">🌟</div>
+                                <div class="absolute -top-4 -right-4 text-6xl animate-pulse">✨</div>
+                                <h3 class="text-3xl font-bold mb-2 ${gameState.isCompleted ? 'text-green-600' : 'text-red-600'}">
+                                    ${gameState.isCompleted ? '✨ 正解！ ✨' : '❌ 不正解 ❌'}
+                                </h3>
+                                <p class="text-xl mb-3 ${gameState.isCompleted ? 'text-green-700' : 'text-red-700'}">
+                                    ${gameState.celebrationMessage}
+                                </p>
+                                ${gameState.isCompleted ? `
+                                    <p class="text-lg text-gray-700 mb-4">
+                                        +${gameState.currentLevel * 100}ポイント獲得！
+                                    </p>
+                                ` : ''}
+                                <div class="flex justify-center gap-4 mb-4">
+                                    <div class="text-5xl animate-bounce">🐻</div>
+                                    <div class="text-5xl animate-bounce" style="animation-delay: 0.2s;">🐰</div>
+                                </div>
+                                ${gameState.isCompleted && gameState.currentLevel < puzzles.length ? `
+                                    <p class="text-blue-600 font-semibold">
+                                        次はレベル${gameState.currentLevel + 1}に挑戦！
+                                    </p>
+                                ` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex flex-col items-center">
+                            <div class="text-4xl ${animateClass}">${bearEmote}</div>
+                            <p class="text-xs text-gray-600 mt-1">クマ先生</p>
+                        </div>
+                        
+                        <div class="text-center">
+                            <h2 class="text-2xl font-bold text-purple-700">ナンバープレース</h2>
+                            <div class="bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg p-2 mt-2">
+                                <p class="text-lg font-bold text-purple-800">レベル ${gameState.currentLevel}</p>
+                                <p class="text-xs text-purple-600">
+                                    ${gameState.currentLevel === 1 ? '初級' : gameState.currentLevel === 2 ? '中級' : '上級'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-center">
+                            <div class="text-4xl ${animateClass}">${rabbitEmote}</div>
+                            <p class="text-xs text-gray-600 mt-1">ウサギちゃん</p>
+                        </div>
+                    </div>
+
+                    <p class="text-sm text-gray-600 mb-4 text-center">
+                        1〜4の数字を各行・列に一つずつ入れよう
+                    </p>
+
+                    <div class="grid grid-cols-4 gap-1 mb-6 bg-gradient-to-br from-purple-800 to-blue-800 p-3 rounded-lg shadow-lg">
+                        ${gridHTML}
+                    </div>
+
+                    ${gameState.isCompleted ? `
+                        <div class="bg-gradient-to-r from-green-100 to-blue-100 border-2 border-green-400 rounded-xl p-4 mb-4 text-center animate-pulse">
+                            <p class="text-green-700 font-bold text-lg">
+                                🎊 レベル${gameState.currentLevel}クリア！ 🎊
+                            </p>
+                            <p class="text-green-600">+${gameState.currentLevel * 100}ポイント獲得！</p>
+                            <div class="flex justify-center mt-2">
+                                ${[...Array(5)].map((_, i) => `<span class="text-yellow-400 mx-1 animate-pulse text-xl" style="animation-delay: ${i * 0.1}s;">⭐</span>`).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div class="flex gap-2 mb-4">
+                        <button onclick="handleConfirm()" ${gameState.isCompleted ? 'disabled' : ''} class="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white px-6 py-4 rounded-lg hover:from-green-600 hover:to-emerald-600 flex items-center justify-center gap-2 shadow-lg transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-lg font-bold">
+                            ✅ 確定！
+                        </button>
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        <button onclick="resetLevel()" class="flex-1 bg-gradient-to-r from-blue-500 to-purple-500 text-white px-3 py-3 rounded-lg hover:from-blue-600 hover:to-purple-600 flex items-center justify-center gap-2 shadow-lg transform hover:scale-105 transition-all duration-200">
+                            🔄 リセット
+                        </button>
+                        <button onclick="toggleSolution()" class="flex-1 bg-gradient-to-r from-orange-500 to-yellow-500 text-white px-3 py-3 rounded-lg hover:from-orange-600 hover:to-yellow-600 flex items-center justify-center gap-2 shadow-lg transform hover:scale-105 transition-all duration-200">
+                            💡 ${gameState.showSolution ? '隠す' : '答え'}
+                        </button>
+                        <button onclick="goToMenu()" class="flex-1 bg-gradient-to-r from-gray-500 to-gray-600 text-white px-3 py-3 rounded-lg hover:from-gray-600 hover:to-gray-700 flex items-center justify-center gap-2 shadow-lg transform hover:scale-105 transition-all duration-200">
+                            🏠 メニュー
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            if (gameState.currentScreen === 'menu') {
+                app.innerHTML = renderMainMenu();
+            } else {
+                app.innerHTML = renderGame();
+            }
+        }
+
+        // グローバル関数（HTML内で使用）
+        function startGame() {
+            gameState.currentScreen = 'game';
+            initLevel();
+            render();
+        }
+
+        function goToMenu() {
+            gameState.currentScreen = 'menu';
+            render();
+        }
+
+        // 初期化
+        render();
+    </script>
+</body>
+</html>
